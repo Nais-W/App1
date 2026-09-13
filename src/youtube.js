@@ -231,12 +231,63 @@ function extractJsonAfter(html, key) {
 function readMetadata(player) {
   const d = player?.videoDetails ?? {};
   const seconds = Number(d.lengthSeconds);
+  const description = typeof d.shortDescription === 'string' ? d.shortDescription : '';
   return {
     title: d.title ?? '(タイトル不明)',
     author: d.author ?? '',
     lengthSeconds: Number.isFinite(seconds) ? seconds : null,
     isLive: Boolean(d.isLive || d.isLiveContent),
+    description: cleanDescription(description),
+    chapters: parseChapters(description),
   };
+}
+
+/** 説明欄の上限文字数。これを超える分は要約の材料にしない */
+const MAX_DESCRIPTION_CHARS = 2500;
+
+/**
+ * 説明欄から、要約の材料になりにくい行 (URL だけの行、SNS 誘導、定型の宣伝) を落とす。
+ * 投稿者が書いた補足説明は、字幕に出てこない情報を含むことがあるため残す。
+ */
+export function cleanDescription(description) {
+  if (!description) return '';
+
+  const noise =
+    /^(?:[\s\-=*_#・]*)$|^(?:https?:\/\/\S+)$|チャンネル登録|高評価|メンバーシップ|公式(?:LINE|ライン)|各種SNS|▼|フォロー(?:は|よろしく)|#[^\s#]+(?:\s+#[^\s#]+)+$/i;
+
+  const kept = [];
+  for (const raw of description.split('\n')) {
+    const line = raw.trim();
+    if (!line || noise.test(line)) continue;
+    kept.push(line);
+  }
+
+  const text = kept.join('\n').trim();
+  return text.length > MAX_DESCRIPTION_CHARS
+    ? `${text.slice(0, MAX_DESCRIPTION_CHARS)}…`
+    : text;
+}
+
+/**
+ * 説明欄に書かれたチャプター (例: "1:23 導入") を取り出す。
+ * 画面にしか出てこない話題の切れ目を補えるため、要約の構成の手がかりにする。
+ */
+export function parseChapters(description) {
+  if (!description) return [];
+
+  const chapters = [];
+  for (const raw of description.split('\n')) {
+    const m = raw.trim().match(/^\(?((?:\d{1,2}:)?\d{1,2}:\d{2})\)?\s*[-–—:｜|]?\s*(.+)$/);
+    if (!m) continue;
+
+    const title = m[2].trim().replace(/^[-–—:｜|\s]+/, '');
+    if (!title || title.length > 120) continue;
+
+    chapters.push({ time: m[1], title });
+  }
+
+  // タイムスタンプが1つしかない説明欄は、チャプターではなく単なる言及のことが多い
+  return chapters.length >= 2 ? chapters.slice(0, 40) : [];
 }
 
 /** 再生できない動画 (非公開・削除・年齢制限など) を検出する */
