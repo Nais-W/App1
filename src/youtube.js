@@ -68,6 +68,57 @@ const INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
  */
 const CLIENTS = [
   {
+    // Quest 向けクライアント。データセンターIPからでも比較的通りやすい
+    label: 'ANDROID_VR',
+    client: {
+      clientName: 'ANDROID_VR',
+      clientVersion: '1.62.27',
+      deviceMake: 'Oculus',
+      deviceModel: 'Quest 3',
+      osName: 'Android',
+      osVersion: '12',
+      androidSdkVersion: 32,
+    },
+    headers: {
+      'User-Agent': 'com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12; GB) gzip',
+      'X-YouTube-Client-Name': '28',
+      'X-YouTube-Client-Version': '1.62.27',
+    },
+  },
+  {
+    // 埋め込みプレーヤー用。ログイン要求が出にくい
+    label: 'TV_EMBEDDED',
+    client: {
+      clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
+      clientVersion: '2.0',
+      platform: 'TV',
+    },
+    contextExtra: { thirdParty: { embedUrl: 'https://www.youtube.com/' } },
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
+      'X-YouTube-Client-Name': '85',
+      'X-YouTube-Client-Version': '2.0',
+    },
+  },
+  {
+    label: 'IOS',
+    client: {
+      clientName: 'IOS',
+      clientVersion: '20.10.4',
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iOS',
+      osVersion: '18.3.2.22D82',
+      platform: 'MOBILE',
+    },
+    headers: {
+      'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)',
+      'X-YouTube-Client-Name': '5',
+      'X-YouTube-Client-Version': '20.10.4',
+    },
+  },
+  {
     label: 'ANDROID',
     client: {
       clientName: 'ANDROID',
@@ -84,19 +135,32 @@ const CLIENTS = [
     },
   },
   {
-    label: 'IOS',
+    label: 'MWEB',
     client: {
-      clientName: 'IOS',
-      clientVersion: '20.10.4',
-      deviceModel: 'iPhone16,2',
-      osName: 'iOS',
-      osVersion: '18.3.2.22D82',
+      clientName: 'MWEB',
+      clientVersion: '2.20250301.02.00',
       platform: 'MOBILE',
     },
     headers: {
-      'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)',
-      'X-YouTube-Client-Name': '5',
-      'X-YouTube-Client-Version': '20.10.4',
+      'User-Agent':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1',
+      'X-YouTube-Client-Name': '2',
+      'X-YouTube-Client-Version': '2.20250301.02.00',
+    },
+  },
+  {
+    label: 'WEB_EMBEDDED',
+    client: {
+      clientName: 'WEB_EMBEDDED_PLAYER',
+      clientVersion: '1.20250301.00.00',
+      platform: 'DESKTOP',
+    },
+    contextExtra: { thirdParty: { embedUrl: 'https://www.youtube.com/' } },
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+      'X-YouTube-Client-Name': '56',
+      'X-YouTube-Client-Version': '1.20250301.00.00',
     },
   },
   {
@@ -127,6 +191,7 @@ async function fetchPlayerResponse(videoId, clientDef, lang) {
         timeZone: 'Asia/Tokyo',
         utcOffsetMinutes: 540,
       },
+      ...clientDef.contextExtra,
     },
     contentCheckOk: true,
     racyCheckOk: true,
@@ -290,18 +355,40 @@ export function parseChapters(description) {
   return chapters.length >= 2 ? chapters.slice(0, 40) : [];
 }
 
-/** 再生できない動画 (非公開・削除・年齢制限など) を検出する */
-function assertPlayable(player) {
-  const status = player?.playabilityStatus;
-  if (!status) return;
-  const s = status.status;
-  if (s && s !== 'OK') {
-    const reason =
-      status.reason ||
-      status.errorScreen?.playerErrorMessageRenderer?.reason?.simpleText ||
-      s;
-    throw new TranscriptError('NOT_PLAYABLE', `この動画は再生できません: ${reason}`, { status: s });
-  }
+/** ログイン要求・bot 判定を示す文言 */
+const BOT_CHECK_RE = /bot|sign in|signin|ログイン|ロボット|not a robot|confirm you/i;
+
+/**
+ * playabilityStatus を分類する。
+ *
+ * 「再生できない」には2種類ある。
+ *   - 動画そのものが無い (削除・非公開) … どのクライアントで試しても同じ
+ *   - ログイン要求 / bot 判定 / このアプリでは見られない … クライアント次第で変わる
+ *
+ * 後者で打ち切ると、通るはずの経路を試さずに諦めることになるため、
+ * 打ち切ってよいのは前者だけに限定する。
+ *
+ * @returns {{kind: 'ok'|'blocked'|'fatal', reason?: string, status?: string, botCheck?: boolean}}
+ */
+function classifyPlayability(player) {
+  const st = player?.playabilityStatus;
+  if (!st?.status || st.status === 'OK') return { kind: 'ok' };
+
+  const status = st.status;
+  const reason =
+    st.reason || st.errorScreen?.playerErrorMessageRenderer?.reason?.simpleText || status;
+
+  // 動画が存在しない・非公開・削除済み。経路を変えても結果は同じ
+  if (status === 'ERROR') return { kind: 'fatal', reason, status };
+
+  // それ以外 (LOGIN_REQUIRED / UNPLAYABLE / AGE_VERIFICATION_REQUIRED など) は
+  // クライアント固有のことがあるので、次の経路を試す
+  return {
+    kind: 'blocked',
+    reason,
+    status,
+    botCheck: status === 'LOGIN_REQUIRED' || BOT_CHECK_RE.test(reason),
+  };
 }
 
 /**
@@ -394,6 +481,8 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
     { label: 'watch-page', run: () => fetchPlayerResponseFromWatchPage(videoId, lang) },
   ];
 
+  let botBlocked = false;
+
   for (const source of sources) {
     let player;
     try {
@@ -403,39 +492,51 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
       continue;
     }
 
-    try {
-      assertPlayable(player);
-    } catch (err) {
-      // 「再生できない」は経路を変えても直らないので、そのまま返す
-      if (err instanceof TranscriptError && err.code === 'NOT_PLAYABLE') throw err;
-      throw err;
+    // 目的は字幕なので、再生可否より先に字幕トラックの有無を見る。
+    // ログイン要求が出ていても字幕だけは付いてくることがある。
+    const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+    if (tracks?.length) {
+      const track = pickTrack(tracks, preferredLangs);
+      try {
+        const segments = await downloadTrack(track);
+        return {
+          metadata: readMetadata(player),
+          track: {
+            languageCode: track.languageCode ?? '?',
+            name: track.name?.simpleText ?? track.name?.runs?.[0]?.text ?? '',
+            isAsr: track.kind === 'asr',
+          },
+          segments,
+          via: source.label,
+          attempts,
+        };
+      } catch (err) {
+        attempts.push({ source: source.label, error: err.message });
+        continue;
+      }
     }
 
-    lastPlayable = player;
+    // 字幕が取れなかったので、その理由を分類する
+    const pl = classifyPlayability(player);
 
-    const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks?.length) {
-      attempts.push({ source: source.label, error: '字幕トラックが見つからない' });
+    if (pl.kind === 'fatal') {
+      // 動画そのものが無い。経路を変えても同じなのでここで打ち切る
+      throw new TranscriptError('NOT_PLAYABLE', `この動画は再生できません: ${pl.reason}`, {
+        status: pl.status,
+        attempts,
+      });
+    }
+
+    if (pl.kind === 'blocked') {
+      if (pl.botCheck) botBlocked = true;
+      attempts.push({ source: source.label, error: `${pl.status}: ${pl.reason}` });
       continue;
     }
 
-    const track = pickTrack(tracks, preferredLangs);
-    try {
-      const segments = await downloadTrack(track);
-      return {
-        metadata: readMetadata(player),
-        track: {
-          languageCode: track.languageCode ?? '?',
-          name: track.name?.simpleText ?? track.name?.runs?.[0]?.text ?? '',
-          isAsr: track.kind === 'asr',
-        },
-        segments,
-        via: source.label,
-        attempts,
-      };
-    } catch (err) {
-      attempts.push({ source: source.label, error: err.message });
-    }
+    // 再生はできるが字幕が無い。動画自体の情報は使えるので覚えておく
+    lastPlayable = player;
+    attempts.push({ source: source.label, error: '字幕トラックが見つからない' });
   }
 
   // どの経路でも取れなかった
@@ -452,6 +553,14 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
       'NO_CAPTIONS',
       'この動画には利用できる字幕がありませんでした。字幕(自動生成を含む)が付いた動画をお試しください。',
       { attempts, title: meta.title },
+    );
+  }
+
+  if (botBlocked) {
+    throw new TranscriptError(
+      'BOT_CHECK',
+      'YouTube にアクセスを拒否されました（bot 判定）。しばらく時間をおいてからお試しください。',
+      { attempts },
     );
   }
 
