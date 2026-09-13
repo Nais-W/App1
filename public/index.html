@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>YouTube 要約ツール</title>
+<meta name="description" content="YouTube の URL を貼るだけで、動画の内容を日本語で要約します。" />
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --panel-2: #f2f4f7;
+    --text: #16191d;
+    --muted: #616a76;
+    --border: #dfe3e8;
+    --accent: #c0392b;
+    --accent-text: #ffffff;
+    --focus: #2f6fd0;
+    --danger-bg: #fdeceb;
+    --danger-border: #f3c0bb;
+    --danger-text: #9b2c20;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --panel: #1c2024;
+      --panel-2: #23282d;
+      --text: #e8eaed;
+      --muted: #9aa4b0;
+      --border: #333a41;
+      --accent: #e0483a;
+      --focus: #6aa3ff;
+      --danger-bg: #3a1f1c;
+      --danger-border: #6b322b;
+      --danger-text: #ffb4aa;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+    line-height: 1.75;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap { max-width: 780px; margin: 0 auto; padding: 32px 16px 96px; }
+
+  header h1 {
+    font-size: 1.5rem;
+    margin: 0 0 6px;
+    letter-spacing: .01em;
+  }
+  header p { margin: 0 0 24px; color: var(--muted); font-size: .9rem; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+
+  label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 6px; }
+
+  input[type="url"] {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 1rem;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  input[type="url"]:focus-visible,
+  button:focus-visible,
+  .seg input:focus-visible + span {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 16px; }
+  .row > div { flex: 1 1 auto; }
+
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .seg span {
+    display: block;
+    padding: 10px 16px;
+    font-size: .875rem;
+    cursor: pointer;
+    background: var(--panel-2);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .seg label:last-child span { border-right: none; }
+  .seg input:checked + span { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .seg label { margin: 0; position: relative; }
+
+  button.primary {
+    padding: 12px 28px;
+    font-size: 1rem;
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--accent-text);
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+
+  .hint { margin: 14px 0 0; font-size: .8rem; color: var(--muted); }
+
+  #status {
+    display: none;
+    margin-top: 24px;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: .9rem;
+    color: var(--muted);
+  }
+  #status.on { display: flex; gap: 10px; align-items: center; }
+  .spinner {
+    flex: none;
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+
+  #error {
+    display: none;
+    margin-top: 24px;
+    padding: 14px 16px;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius);
+    color: var(--danger-text);
+    font-size: .9rem;
+  }
+  #error.on { display: block; }
+  #error strong { display: block; margin-bottom: 4px; }
+
+  #result { display: none; margin-top: 24px; }
+  #result.on { display: block; }
+
+  .videobar {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius) var(--radius) 0 0;
+    border-bottom: none;
+  }
+  .videobar img { flex: none; width: 96px; border-radius: 6px; display: block; }
+  .videobar .t { font-weight: 600; font-size: .95rem; line-height: 1.5; }
+  .videobar .m { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+
+  .summary {
+    padding: 8px 20px 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+  .summary h2 { font-size: 1.05rem; margin: 24px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .summary h3 { font-size: .95rem; margin: 18px 0 6px; }
+  .summary ul { margin: 8px 0; padding-left: 1.3em; }
+  .summary li { margin: 4px 0; }
+  .summary p { margin: 8px 0; }
+  .summary a.ts {
+    display: inline-block;
+    font-variant-numeric: tabular-nums;
+    font-size: .82em;
+    color: var(--focus);
+    text-decoration: none;
+    background: var(--panel-2);
+    border-radius: 4px;
+    padding: 0 5px;
+  }
+  .summary a.ts:hover { text-decoration: underline; }
+  .summary .caret {
+    display: inline-block;
+    width: 8px; height: 1em;
+    background: var(--muted);
+    vertical-align: -2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .actions { display: flex; gap: 8px; margin-top: 14px; }
+  .actions button {
+    padding: 7px 14px;
+    font-size: .82rem;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .note { margin-top: 10px; font-size: .78rem; color: var(--muted); }
+
+  footer { margin-top: 40px; font-size: .78rem; color: var(--muted); text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>YouTube 要約ツール</h1>
+    <p>動画の URL を貼り付けると、字幕をもとに内容を日本語で要約します。</p>
+  </header>
+
+  <form class="card" id="form">
+    <label for="url">YouTube の URL</label>
+    <input type="url" id="url" name="url" placeholder="https://www.youtube.com/watch?v=..." required autocomplete="off" spellcheck="false" />
+
+    <div class="row">
+      <div>
+        <label for="len-standard">要約の長さ</label>
+        <div class="seg" role="radiogroup" aria-label="要約の長さ">
+          <label><input type="radio" name="length" value="short" id="len-short"><span>短め</span></label>
+          <label><input type="radio" name="length" value="standard" id="len-standard" checked><span>標準</span></label>
+          <label><input type="radio" name="length" value="detailed" id="len-detailed"><span>詳しく</span></label>
+        </div>
+      </div>
+      <div style="flex:0 0 auto">
+        <button type="submit" class="primary" id="go">要約する</button>
+      </div>
+    </div>
+
+    <p class="hint">字幕（自動生成を含む）が付いている動画のみ対応しています。長い動画ほど時間がかかります。</p>
+  </form>
+
+  <div id="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span id="status-text"></span></div>
+
+  <div id="error" role="alert"></div>
+
+  <div id="result">
+    <div class="videobar" id="videobar" hidden>
+      <img id="thumb" alt="" width="96" height="54" />
+      <div>
+        <div class="t" id="vtitle"></div>
+        <div class="m" id="vmeta"></div>
+      </div>
+    </div>
+    <div class="summary" id="summary"></div>
+    <div class="actions">
+      <button type="button" id="copy">要約をコピー</button>
+      <button type="button" id="open">YouTube で開く</button>
+    </div>
+    <p class="note" id="note"></p>
+  </div>
+
+  <footer>要約は AI が生成したものです。重要な判断に使う場合は、必ず元の動画をご確認ください。</footer>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const form = $('form'), urlInput = $('url'), go = $('go');
+const statusBox = $('status'), statusText = $('status-text');
+const errorBox = $('error'), resultBox = $('result'), summaryBox = $('summary');
+const videobar = $('videobar'), thumb = $('thumb'), vtitle = $('vtitle'), vmeta = $('vmeta');
+const note = $('note');
+
+let currentVideoId = null;
+let rawMarkdown = '';
+let inFlight = null;
+
+const escapeHtml = (s) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/** [m:ss] / [h:mm:ss] を YouTube の該当時刻へのリンクにする */
+function linkTimestamps(html) {
+  return html.replace(/\[(\d{1,2}:)?(\d{1,2}):(\d{2})\]/g, (whole, h, m, s) => {
+    if (!currentVideoId) return whole;
+    const hours = h ? parseInt(h, 10) : 0;
+    const total = hours * 3600 + parseInt(m, 10) * 60 + parseInt(s, 10);
+    const label = whole.slice(1, -1);
+    return `<a class="ts" href="https://www.youtube.com/watch?v=${currentVideoId}&t=${total}s" target="_blank" rel="noopener">${label}</a>`;
+  });
+}
+
+/** モデルが返す Markdown を、必要な範囲だけ HTML にする */
+function renderMarkdown(md) {
+  const lines = escapeHtml(md).split('\n');
+  const out = [];
+  let inList = false;
+
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) { closeList(); continue; }
+
+    let m;
+    if ((m = t.match(/^###\s+(.*)$/))) { closeList(); out.push(`<h3>${inline(m[1])}</h3>`); }
+    else if ((m = t.match(/^##\s+(.*)$/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); }
+    else if ((m = t.match(/^#\s+(.*)$/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); }
+    else if ((m = t.match(/^[-*・]\s+(.*)$/))) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${inline(m[1])}</li>`);
+    }
+    else if ((m = t.match(/^\d+\.\s+(.*)$/))) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${inline(m[1])}</li>`);
+    }
+    else { closeList(); out.push(`<p>${inline(t)}</p>`); }
+  }
+  closeList();
+  return linkTimestamps(out.join(''));
+}
+
+const inline = (s) =>
+  s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(?<!\*)\*(?!\s)(.+?)(?<!\s)\*/g, '<em>$1</em>');
+
+function setStatus(text) {
+  statusText.textContent = text;
+  statusBox.classList.add('on');
+}
+function clearStatus() { statusBox.classList.remove('on'); }
+
+function showError(message, hint) {
+  errorBox.innerHTML = `<strong>${escapeHtml(message)}</strong>${hint ? escapeHtml(hint) : ''}`;
+  errorBox.classList.add('on');
+}
+
+const ERROR_HINTS = {
+  NO_CAPTIONS: '字幕が公開されていない動画は要約できません。別の動画でお試しください。',
+  LIVE_STREAM: '',
+  NOT_PLAYABLE: '限定公開・メンバー限定・年齢制限のある動画は取得できないことがあります。',
+  FETCH_BLOCKED: '時間をおいて再度お試しください。繰り返し起きる場合は、YouTube 側でアクセスが制限されている可能性があります。',
+};
+
+function formatDuration(sec) {
+  if (!sec) return '';
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h > 0 ? `${h}時間${m}分` : `${m}分${s}秒`;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (inFlight) inFlight.abort();
+
+  const url = urlInput.value.trim();
+  if (!url) return;
+
+  const length = form.querySelector('input[name="length"]:checked').value;
+
+  // 表示をリセット
+  errorBox.classList.remove('on');
+  resultBox.classList.remove('on');
+  summaryBox.innerHTML = '';
+  videobar.hidden = true;
+  note.textContent = '';
+  rawMarkdown = '';
+  currentVideoId = null;
+  go.disabled = true;
+  setStatus('準備中…');
+
+  const controller = new AbortController();
+  inFlight = controller;
+
+  try {
+    const res = await fetch('/api/summarize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, length }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? `サーバーエラー (HTTP ${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sep;
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        handleEvent(block);
+      }
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      clearStatus();
+      showError(err.message ?? '通信に失敗しました');
+    }
+  } finally {
+    go.disabled = false;
+    inFlight = null;
+  }
+});
+
+function handleEvent(block) {
+  let event = 'message';
+  let dataLine = '';
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) dataLine += line.slice(5).trim();
+  }
+  if (!dataLine) return;
+
+  let data;
+  try { data = JSON.parse(dataLine); } catch { return; }
+
+  if (event === 'status') {
+    setStatus(data.message ?? '処理中…');
+  } else if (event === 'meta') {
+    currentVideoId = data.videoId;
+    thumb.src = `https://i.ytimg.com/vi/${data.videoId}/mqdefault.jpg`;
+    thumb.alt = '';
+    vtitle.textContent = data.title;
+    const bits = [data.author, formatDuration(data.lengthSeconds)].filter(Boolean);
+    bits.push(`字幕: ${data.captionLanguage}${data.captionIsAsr ? '（自動生成）' : ''}`);
+    vmeta.textContent = bits.join(' ・ ');
+    videobar.hidden = false;
+    resultBox.classList.add('on');
+  } else if (event === 'delta') {
+    clearStatus();
+    resultBox.classList.add('on');
+    rawMarkdown += data.text;
+    summaryBox.innerHTML = renderMarkdown(rawMarkdown) + '<span class="caret"></span>';
+  } else if (event === 'done') {
+    clearStatus();
+    summaryBox.innerHTML = renderMarkdown(rawMarkdown);
+    const notes = [];
+    if (data.sampled) notes.push('動画が長いため、字幕の一部を抜粋して要約しています。');
+    if (data.model) notes.push(`モデル: ${data.model}`);
+    note.textContent = notes.join(' ');
+  } else if (event === 'error') {
+    clearStatus();
+    showError(data.message, ERROR_HINTS[data.code]);
+  }
+}
+
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(rawMarkdown);
+    $('copy').textContent = 'コピーしました';
+    setTimeout(() => ($('copy').textContent = '要約をコピー'), 1500);
+  } catch {
+    $('copy').textContent = 'コピーできませんでした';
+    setTimeout(() => ($('copy').textContent = '要約をコピー'), 1500);
+  }
+});
+
+$('open').addEventListener('click', () => {
+  if (currentVideoId) window.open(`https://www.youtube.com/watch?v=${currentVideoId}`, '_blank', 'noopener');
+});
+</script>
+</body>
+</html>
