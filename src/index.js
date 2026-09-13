@@ -57,6 +57,8 @@ async function handleSummarize(request, env, ctx) {
   }
 
   const length = Object.hasOwn(LENGTH_PRESETS, body?.length) ? body.length : 'standard';
+  // 検証パスはモデルをもう一度呼ぶため、明示的に false のときだけ省略する
+  const review = body?.review !== false;
   const preferredLangs = (env.PREFERRED_LANGS ?? 'ja,en')
     .split(',')
     .map((s) => s.trim().toLowerCase())
@@ -94,14 +96,18 @@ async function handleSummarize(request, env, ctx) {
           segments: transcript.segments,
           metadata: transcript.metadata,
           length,
+          review,
           onStatus: (s) => send('status', s),
           onDelta: (d) => send('delta', { text: d }),
+          onReset: (text) => send('reset', { text: text ?? '' }),
         });
 
         send('done', {
           chunks: result.chunks,
           sampled: result.sampled,
           model: result.model,
+          reviewed: result.reviewed,
+          reviewError: result.reviewError ?? null,
         });
       } catch (err) {
         console.error('summarize failed', err);

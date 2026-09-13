@@ -22,6 +22,12 @@ const MAX_CHUNK_CHARS = 12000;
 const TIMESTAMP_INTERVAL = 60;
 /** 部分要約を全部足したときの、最終要約への入力トークンの上限の目安 */
 const MAP_TOKEN_BUDGET = 13000;
+/**
+ * 検証パスに渡す材料の文字数の上限。
+ * 検証パスは「下書き + 材料 + 補足資料」を同時に読むため、
+ * 材料をそのまま渡すとコンテキスト (24,000トークン) を超える。
+ */
+const REVIEW_SOURCE_CHARS = 9000;
 
 /** 話題だけを示す出力を防ぐための、共通の禁止ルール */
 const EXTRACTION_RULES = [
@@ -156,6 +162,21 @@ export function buildChunks(segments) {
  */
 export function mapTokenBudget(chunkCount) {
   return Math.max(700, Math.min(2000, Math.floor(MAP_TOKEN_BUDGET / chunkCount)));
+}
+
+/**
+ * 検証パスに渡すために材料を切り詰める。
+ * 末尾には結論が来ることが多いので、前半と後半の両方を残す。
+ */
+function clampMaterial(text, maxChars) {
+  if (text.length <= maxChars) return { text, clamped: false };
+
+  const head = Math.floor(maxChars * 0.6);
+  const tail = maxChars - head;
+  return {
+    text: `${text.slice(0, head)}\n\n…(中略)…\n\n${text.slice(-tail)}`,
+    clamped: true,
+  };
 }
 
 /** Workers AI を 1 回呼んで、生成されたテキスト全体を返す */
@@ -336,6 +357,75 @@ function reduceMessages(source, metadata, preset, isRaw) {
 }
 
 /**
+ * 検証・補正パス (review フェーズ) のプロンプト。
+ *
+ * 自動生成字幕は音声しか拾えないため、固有名詞が音のまま残る
+ * (例: 説明欄に getdesign.md とあるサイトが「デザインmd」になる)。
+ * このパスは下書きを材料と突き合わせ、根拠のある修正だけを行う。
+ *
+ * ここで推測を許すと、それらしい嘘が混ざって要約全体が信用できなくなる。
+ * そのため「できること」を3つに限定し、根拠がない場合は直さずに
+ * 「確認が必要な点」へ回させる。材料は切り詰めて渡すことがあるので、
+ * 材料に見当たらないことを理由に削除させてはいけない。
+ */
+function reviewMessages(draft, source, metadata, preset, isRaw, clamped) {
+  const heading = isRaw ? '書き起こし' : '各パートの内容メモ';
+  const supplement = buildSupplement(metadata);
+
+  return [
+    {
+      role: 'system',
+      content:
+        'あなたは、要約の下書きを材料と突き合わせて確認する校正者です。' +
+        '材料に根拠のある修正だけを行い、根拠のないことは絶対に書き足しません。' +
+        'あなた自身が持っている一般知識で内容を補うことは禁止されています。' +
+        '出力は完成した要約の本文だけで、作業の報告は書きません。必ず日本語で書きます。',
+    },
+    {
+      role: 'user',
+      content:
+        `YouTube 動画「${metadata.title}」の要約の下書きができました。\n` +
+        'これを材料と突き合わせて確認し、完成版にしてください。\n\n' +
+        'この動画が何を伝えようとしているのかを踏まえ、' +
+        'その本質から見て欠けている点がないかという観点で確認してください。\n\n' +
+        '## あなたができること (この3つだけ)\n' +
+        '1. 表記の修正 — 字幕が聞き取りを誤った固有名詞を、正式な表記に直す\n' +
+        '2. 欠落の補充 — 材料に書かれているのに下書きに入っていない重要な内容を加える\n' +
+        '3. 整理 — 重複をまとめる、順序を直す、曖昧な表現を材料どおりに具体化する\n\n' +
+        '## 絶対にやってはいけないこと\n' +
+        '- 材料のどこにも書かれていない情報を書き足す\n' +
+        '- あなたが知っている知識で説明を補う' +
+        '(そのサービスが何かを知っていても、材料に書かれていなければ書かない)\n' +
+        '- 固有名詞・URL・数値・金額を推測して書く\n' +
+        '- 材料の内容を、世間でよくある話に寄せて言い換える\n' +
+        '- 材料に見当たらないことを理由に、下書きの記述を削除する\n' +
+        '  (材料は一部を省略して渡しているため、載っていないだけのことがあります)\n\n' +
+        '## 表記を直してよい条件\n' +
+        '次の両方を満たすときだけ直してください。\n' +
+        '- その正式な表記が、補足資料か材料の中に実際に書かれている\n' +
+        '- 字幕の表記と読みが一致する、または同じものを指していることが明らかである\n\n' +
+        '判断の例:\n' +
+        '- 下書きに「デザインmd」とあり、補足資料に「https://getdesign.md」がある\n' +
+        '  → 読みが一致し同じものを指すので「getdesign.md」に直してよい\n' +
+        '- 下書きに「デザインmd」とあり、補足資料にも材料にも該当する表記がない\n' +
+        '  → 直さない。「デザインmd」のまま残し、「確認が必要な点」に書く\n\n' +
+        '## 出力\n' +
+        '下書きと同じ見出し構成のまま、完成版の要約を出力してください。\n' +
+        '見出しを削ったり増やしたりしないでください。\n\n' +
+        '修正・補充した箇所には印を付けないでください。完成した文章として読める形にしてください。\n\n' +
+        '判断に迷った箇所があった場合にかぎり、いちばん最後に次の節を付けてください。\n' +
+        '迷った箇所がなければ、この節は付けないでください。\n\n' +
+        '## 確認が必要な点\n' +
+        '- 何がどう不確かなのかと、そう判断した理由を1行で書く\n' +
+        '  (例: 「デザインmd」は音声からの表記です。説明欄に該当するリンクがないため確認できていません [13:10])\n\n' +
+        `[下書き]\n${draft}\n\n` +
+        `[${heading}${clamped ? '・一部省略' : ''}]\n${source}` +
+        (supplement ? `\n\n[補足資料]\n${supplement}` : ''),
+    },
+  ];
+}
+
+/**
  * 字幕から要約を生成する。
  *
  * 進捗と本文は、コールバック経由で逐次通知する。
@@ -345,10 +435,20 @@ function reduceMessages(source, metadata, preset, isRaw) {
  * @param {Array} params.segments 字幕セグメント
  * @param {object} params.metadata 動画メタ情報
  * @param {string} params.length 'short' | 'standard' | 'detailed'
+ * @param {boolean} params.review 検証・補正パスを行うか
  * @param {(status: object) => void} params.onStatus 進捗通知
  * @param {(delta: string) => void} params.onDelta 要約本文の差分通知
+ * @param {(text?: string) => void} params.onReset 表示済みの本文を破棄する通知
  */
-export async function summarize(env, { segments, metadata, length, onStatus, onDelta }) {
+export async function summarize(env, {
+  segments,
+  metadata,
+  length,
+  review = true,
+  onStatus,
+  onDelta,
+  onReset,
+}) {
   const preset = LENGTH_PRESETS[length] ?? LENGTH_PRESETS.standard;
   const model = env.SUMMARY_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 
@@ -389,22 +489,58 @@ export async function summarize(env, { segments, metadata, length, onStatus, onD
     source = notes.join('\n\n');
   }
 
-  onStatus({ phase: 'reducing', message: '要約を作成中…' });
+  onStatus({ phase: 'reducing', message: review ? '要約の下書きを作成中…' : '要約を作成中…' });
 
-  let produced = '';
-  for await (const delta of runModelStream(
-    env,
-    model,
-    reduceMessages(source, metadata, preset, isRaw),
-    preset.maxTokens,
-  )) {
-    produced += delta;
-    onDelta(delta);
-  }
+  const stream = async (messages, maxTokens) => {
+    let produced = '';
+    for await (const delta of runModelStream(env, model, messages, maxTokens)) {
+      produced += delta;
+      onDelta(delta);
+    }
+    return produced;
+  };
 
-  if (!produced.trim()) {
+  const draft = await stream(reduceMessages(source, metadata, preset, isRaw), preset.maxTokens);
+
+  if (!draft.trim()) {
     throw new Error('要約を生成できませんでした（モデルの応答が空でした）');
   }
 
-  return { text: produced, chunks: chunks.length, sampled, model };
+  if (!review) {
+    return { text: draft, chunks: chunks.length, sampled, model, reviewed: false };
+  }
+
+  // 下書きを材料と突き合わせ、根拠のある修正だけを加えた完成版に差し替える
+  onStatus({ phase: 'reviewing', message: '内容を検証して補正中…' });
+
+  const material = clampMaterial(source, REVIEW_SOURCE_CHARS);
+
+  let finalText;
+  try {
+    // 画面の下書きを一度消してから、完成版を流し込む
+    onReset?.();
+    finalText = await stream(
+      reviewMessages(draft, material.text, metadata, preset, isRaw, material.clamped),
+      preset.maxTokens,
+    );
+  } catch (err) {
+    // 検証に失敗しても下書きは使えるので、そちらを返す
+    console.error('review pass failed', err);
+    onReset?.(draft);
+    return {
+      text: draft,
+      chunks: chunks.length,
+      sampled,
+      model,
+      reviewed: false,
+      reviewError: err?.message ?? String(err),
+    };
+  }
+
+  if (!finalText.trim()) {
+    onReset?.(draft);
+    return { text: draft, chunks: chunks.length, sampled, model, reviewed: false };
+  }
+
+  return { text: finalText, chunks: chunks.length, sampled, model, reviewed: true };
 }

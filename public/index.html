@@ -116,6 +116,18 @@
 
   .hint { margin: 14px 0 0; font-size: .8rem; color: var(--muted); }
 
+  .check {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 16px 0 0;
+    font-size: .85rem;
+    font-weight: 400;
+    cursor: pointer;
+  }
+  .check input { flex: none; margin: 4px 0 0; accent-color: var(--accent); }
+  .check .sub { display: block; margin-top: 2px; font-size: .78rem; color: var(--muted); }
+
   #status {
     display: none;
     margin-top: 24px;
@@ -237,6 +249,17 @@
         <button type="submit" class="primary" id="go">要約する</button>
       </div>
     </div>
+
+    <label class="check" for="review">
+      <input type="checkbox" id="review" checked />
+      <span>
+        内容を検証して補正する
+        <span class="sub">
+          下書きを字幕・説明欄と突き合わせ、聞き取り誤りの表記や抜けを直します。
+          根拠のない情報は追加しません。時間が約2倍かかります。
+        </span>
+      </span>
+    </label>
 
     <p class="hint">字幕（自動生成を含む）が付いている動画のみ対応しています。長い動画ほど時間がかかります。</p>
   </form>
@@ -374,7 +397,7 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/api/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, length }),
+      body: JSON.stringify({ url, length, review: $('review').checked }),
       signal: controller.signal,
     });
 
@@ -434,6 +457,12 @@ function handleEvent(block) {
     vmeta.textContent = bits.join(' ・ ');
     videobar.hidden = false;
     resultBox.classList.add('on');
+  } else if (event === 'reset') {
+    // 下書きを破棄して完成版を流し込む (検証パスの開始時)
+    rawMarkdown = data.text ?? '';
+    summaryBox.innerHTML = rawMarkdown
+      ? renderMarkdown(rawMarkdown)
+      : '<p style="color:var(--muted)">検証結果を反映しています…</p>';
   } else if (event === 'delta') {
     clearStatus();
     resultBox.classList.add('on');
@@ -444,6 +473,7 @@ function handleEvent(block) {
     summaryBox.innerHTML = renderMarkdown(rawMarkdown);
     const notes = [];
     if (data.sampled) notes.push('動画が長いため、字幕の一部を抜粋して要約しています。');
+    if (data.reviewError) notes.push('検証パスが失敗したため、検証前の内容を表示しています。');
     if (data.model) notes.push(`モデル: ${data.model}`);
     note.textContent = notes.join(' ');
   } else if (event === 'error') {
