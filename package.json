@@ -1,0 +1,15 @@
+{
+  "name": "yt-summarizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "YouTube の URL を入力すると動画の内容を要約する Cloudflare Workers アプリ",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.131.1"
+  }
+}
