@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>YouTube 要約ツール</title>
-<meta name="description" content="YouTube の URL を貼るだけで、動画の内容を日本語で要約します。" />
+<meta name="description" content="YouTube の URL を貼るだけで、動画の内容を日本語で要約します。複数の動画をまとめて処理できます。" />
 <style>
   :root {
     color-scheme: light dark;
@@ -20,6 +20,7 @@
     --danger-bg: #fdeceb;
     --danger-border: #f3c0bb;
     --danger-text: #9b2c20;
+    --ok: #2e7d5b;
     --radius: 12px;
   }
   @media (prefers-color-scheme: dark) {
@@ -35,6 +36,7 @@
       --danger-bg: #3a1f1c;
       --danger-border: #6b322b;
       --danger-text: #ffb4aa;
+      --ok: #5fd1a0;
     }
   }
 
@@ -48,13 +50,9 @@
     -webkit-text-size-adjust: 100%;
   }
 
-  .wrap { max-width: 780px; margin: 0 auto; padding: 32px 16px 96px; }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 32px 16px 96px; }
 
-  header h1 {
-    font-size: 1.5rem;
-    margin: 0 0 6px;
-    letter-spacing: .01em;
-  }
+  header h1 { font-size: 1.5rem; margin: 0 0 6px; letter-spacing: .01em; }
   header p { margin: 0 0 24px; color: var(--muted); font-size: .9rem; }
 
   .card {
@@ -66,19 +64,20 @@
 
   label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 6px; }
 
-  input[type="url"] {
+  textarea#urls {
     width: 100%;
+    min-height: 84px;
     padding: 12px 14px;
-    font-size: 1rem;
+    font-size: .95rem;
     font-family: inherit;
+    line-height: 1.7;
     color: var(--text);
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 8px;
+    resize: vertical;
   }
-  input[type="url"]:focus-visible,
-  button:focus-visible,
-  .seg input:focus-visible + span {
+  textarea#urls:focus-visible, button:focus-visible, .seg input:focus-visible + span {
     outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
@@ -86,7 +85,7 @@
   .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 16px; }
   .row > div { flex: 1 1 auto; }
 
-  .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; width: max-content; }
   .seg input { position: absolute; opacity: 0; width: 0; height: 0; }
   .seg span {
     display: block;
@@ -114,21 +113,17 @@
   }
   button.primary:disabled { opacity: .5; cursor: not-allowed; }
 
-  .hint { margin: 14px 0 0; font-size: .8rem; color: var(--muted); }
-
   .check {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
-    margin: 16px 0 0;
-    font-size: .85rem;
-    font-weight: 400;
-    cursor: pointer;
+    display: flex; gap: 8px; align-items: flex-start;
+    margin: 16px 0 0; font-size: .85rem; font-weight: 400; cursor: pointer;
   }
   .check input { flex: none; margin: 4px 0 0; accent-color: var(--accent); }
   .check .sub { display: block; margin-top: 2px; font-size: .78rem; color: var(--muted); }
 
-  #status {
+  .hint { margin: 14px 0 0; font-size: .8rem; color: var(--muted); }
+
+  /* --- 全体の進捗 --- */
+  #progress {
     display: none;
     margin-top: 24px;
     padding: 14px 16px;
@@ -138,10 +133,9 @@
     font-size: .9rem;
     color: var(--muted);
   }
-  #status.on { display: flex; gap: 10px; align-items: center; }
+  #progress.on { display: flex; gap: 10px; align-items: center; }
   .spinner {
-    flex: none;
-    width: 16px; height: 16px;
+    flex: none; width: 16px; height: 16px;
     border: 2px solid var(--border);
     border-top-color: var(--accent);
     border-radius: 50%;
@@ -150,7 +144,8 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 
-  #error {
+  /* --- 入力エラー / 致命的エラー --- */
+  .alert {
     display: none;
     margin-top: 24px;
     padding: 14px 16px;
@@ -160,80 +155,90 @@
     color: var(--danger-text);
     font-size: .9rem;
   }
-  #error.on { display: block; }
-  #error strong { display: block; margin-bottom: 4px; }
-  #error details { margin-top: 10px; }
-  #error summary { cursor: pointer; font-size: .82rem; opacity: .85; }
-  #error pre {
-    margin: 8px 0 0;
-    padding: 10px;
-    overflow-x: auto;
-    font-size: .75rem;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-break: break-word;
-    background: rgba(0, 0, 0, .18);
-    border-radius: 6px;
-  }
+  .alert.on { display: block; }
+  .alert strong { display: block; margin-bottom: 4px; }
 
-  #result { display: none; margin-top: 24px; }
-  #result.on { display: block; }
+  /* --- 動画ごとのカード --- */
+  #results { margin-top: 24px; display: flex; flex-direction: column; gap: 20px; }
 
-  .videobar {
-    display: flex; gap: 12px; align-items: flex-start;
-    padding: 14px 16px;
+  .item {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: var(--radius) var(--radius) 0 0;
-    border-bottom: none;
+    border-radius: var(--radius);
+    overflow: hidden;
   }
-  .videobar img { flex: none; width: 96px; border-radius: 6px; display: block; }
-  .videobar .t { font-weight: 600; font-size: .95rem; line-height: 1.5; }
-  .videobar .m { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .item.err { border-color: var(--danger-border); }
 
-  .summary {
-    padding: 8px 20px 20px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 0 0 var(--radius) var(--radius);
+  .item-head { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; }
+  .item-head img {
+    flex: none; width: 96px; height: 54px; border-radius: 6px; display: block;
+    background: var(--panel-2); object-fit: cover;
   }
-  .summary h2 { font-size: 1.05rem; margin: 24px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .item-head .t { font-weight: 600; font-size: .95rem; line-height: 1.5; word-break: break-word; }
+  .item-head .m { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .item-head .badge {
+    display: inline-block; margin-right: 6px; padding: 0 7px;
+    font-size: .72rem; font-weight: 700; line-height: 1.7;
+    border-radius: 4px; background: var(--panel-2); color: var(--muted);
+  }
+  .item.done .badge { color: var(--ok); }
+  .item.err .badge { color: var(--danger-text); }
+
+  .item-body { padding: 0 20px 16px; }
+  .item-body:empty { display: none; }
+
+  .summary h2 { font-size: 1.05rem; margin: 22px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
   .summary h3 { font-size: .95rem; margin: 18px 0 6px; }
   .summary ul { margin: 8px 0; padding-left: 1.3em; }
   .summary li { margin: 4px 0; }
   .summary p { margin: 8px 0; }
   .summary a.ts {
-    display: inline-block;
-    font-variant-numeric: tabular-nums;
-    font-size: .82em;
-    color: var(--focus);
-    text-decoration: none;
-    background: var(--panel-2);
-    border-radius: 4px;
-    padding: 0 5px;
+    display: inline-block; font-variant-numeric: tabular-nums; font-size: .82em;
+    color: var(--focus); text-decoration: none;
+    background: var(--panel-2); border-radius: 4px; padding: 0 5px;
   }
   .summary a.ts:hover { text-decoration: underline; }
-  .summary .caret {
-    display: inline-block;
-    width: 8px; height: 1em;
-    background: var(--muted);
-    vertical-align: -2px;
-    animation: blink 1s steps(2) infinite;
+  .caret {
+    display: inline-block; width: 8px; height: 1em; background: var(--muted);
+    vertical-align: -2px; animation: blink 1s steps(2) infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
 
-  .actions { display: flex; gap: 8px; margin-top: 14px; }
-  .actions button {
-    padding: 7px 14px;
-    font-size: .82rem;
-    font-family: inherit;
-    color: var(--text);
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
+  .item-err {
+    margin: 0 16px 16px;
+    padding: 12px 14px;
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    border-radius: 8px;
+    color: var(--danger-text);
+    font-size: .86rem;
   }
-  .note { margin-top: 10px; font-size: .78rem; color: var(--muted); }
+  .item-err strong { display: block; margin-bottom: 4px; }
+  .item-err details { margin-top: 10px; }
+  .item-err summary { cursor: pointer; font-size: .82rem; opacity: .85; }
+  .item-err pre {
+    margin: 8px 0 0; padding: 10px; overflow-x: auto;
+    font-size: .75rem; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    background: rgba(0, 0, 0, .18); border-radius: 6px;
+  }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 14px; }
+  .actions button {
+    padding: 7px 14px; font-size: .82rem; font-family: inherit;
+    color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  }
+  .note { margin: 0 16px 14px; font-size: .78rem; color: var(--muted); }
+  .note:empty { display: none; }
+
+  #bulk { display: none; margin-top: 20px; }
+  #bulk.on { display: flex; gap: 8px; }
+  #bulk button {
+    padding: 9px 16px; font-size: .85rem; font-family: inherit;
+    color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  }
 
   footer { margin-top: 40px; font-size: .78rem; color: var(--muted); text-align: center; }
 </style>
@@ -242,12 +247,13 @@
 <div class="wrap">
   <header>
     <h1>YouTube 要約ツール</h1>
-    <p>動画の URL を貼り付けると、字幕をもとに内容を日本語で要約します。</p>
+    <p>動画の URL を貼り付けると、字幕をもとに内容を日本語で要約します。複数まとめて処理できます。</p>
   </header>
 
   <form class="card" id="form">
-    <label for="url">YouTube の URL</label>
-    <input type="url" id="url" name="url" placeholder="https://www.youtube.com/watch?v=..." required autocomplete="off" spellcheck="false" />
+    <label for="urls">YouTube の URL<span id="url-count"></span></label>
+    <textarea id="urls" name="urls" rows="3" spellcheck="false" autocomplete="off"
+      placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/...&#10;（1行に1つ貼り付けてください）"></textarea>
 
     <div class="row">
       <div>
@@ -274,27 +280,20 @@
       </span>
     </label>
 
-    <p class="hint">字幕（自動生成を含む）が付いている動画のみ対応しています。長い動画ほど時間がかかります。</p>
+    <p class="hint">
+      字幕（自動生成を含む）が付いている動画のみ対応しています。
+      複数指定した場合は1本ずつ順に処理します。長い動画・本数が多いほど時間がかかります。
+    </p>
   </form>
 
-  <div id="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span id="status-text"></span></div>
+  <div id="progress" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span id="progress-text"></span></div>
 
-  <div id="error" role="alert"></div>
+  <div id="alert" class="alert" role="alert"></div>
 
-  <div id="result">
-    <div class="videobar" id="videobar" hidden>
-      <img id="thumb" alt="" width="96" height="54" />
-      <div>
-        <div class="t" id="vtitle"></div>
-        <div class="m" id="vmeta"></div>
-      </div>
-    </div>
-    <div class="summary" id="summary"></div>
-    <div class="actions">
-      <button type="button" id="copy">要約をコピー</button>
-      <button type="button" id="open">YouTube で開く</button>
-    </div>
-    <p class="note" id="note"></p>
+  <div id="results"></div>
+
+  <div id="bulk">
+    <button type="button" id="copy-all">すべての要約をコピー</button>
   </div>
 
   <footer>要約は AI が生成したものです。重要な判断に使う場合は、必ず元の動画をご確認ください。</footer>
@@ -302,36 +301,35 @@
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
-const form = $('form'), urlInput = $('url'), go = $('go');
-const statusBox = $('status'), statusText = $('status-text');
-const errorBox = $('error'), resultBox = $('result'), summaryBox = $('summary');
-const videobar = $('videobar'), thumb = $('thumb'), vtitle = $('vtitle'), vmeta = $('vmeta');
-const note = $('note');
+const form = $('form'), urlsInput = $('urls'), go = $('go');
+const progressBox = $('progress'), progressText = $('progress-text');
+const alertBox = $('alert'), resultsBox = $('results'), bulkBox = $('bulk');
 
-let currentVideoId = null;
-let rawMarkdown = '';
+/** index → { videoId, title, markdown, el, bodyEl } */
+let items = new Map();
 let inFlight = null;
 
 const escapeHtml = (s) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /** [m:ss] / [h:mm:ss] を YouTube の該当時刻へのリンクにする */
-function linkTimestamps(html) {
+function linkTimestamps(html, videoId) {
+  if (!videoId) return html;
   return html.replace(/\[(\d{1,2}:)?(\d{1,2}):(\d{2})\]/g, (whole, h, m, s) => {
-    if (!currentVideoId) return whole;
     const hours = h ? parseInt(h, 10) : 0;
     const total = hours * 3600 + parseInt(m, 10) * 60 + parseInt(s, 10);
-    const label = whole.slice(1, -1);
-    return `<a class="ts" href="https://www.youtube.com/watch?v=${currentVideoId}&t=${total}s" target="_blank" rel="noopener">${label}</a>`;
+    return `<a class="ts" href="https://www.youtube.com/watch?v=${videoId}&t=${total}s" target="_blank" rel="noopener">${whole.slice(1, -1)}</a>`;
   });
 }
 
+const inline = (s) =>
+  s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(?<!\*)\*(?!\s)(.+?)(?<!\s)\*/g, '<em>$1</em>');
+
 /** モデルが返す Markdown を、必要な範囲だけ HTML にする */
-function renderMarkdown(md) {
+function renderMarkdown(md, videoId) {
   const lines = escapeHtml(md).split('\n');
   const out = [];
   let inList = false;
-
   const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
 
   for (const line of lines) {
@@ -340,48 +338,19 @@ function renderMarkdown(md) {
 
     let m;
     if ((m = t.match(/^###\s+(.*)$/))) { closeList(); out.push(`<h3>${inline(m[1])}</h3>`); }
-    else if ((m = t.match(/^##\s+(.*)$/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); }
-    else if ((m = t.match(/^#\s+(.*)$/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); }
-    else if ((m = t.match(/^[-*・]\s+(.*)$/))) {
-      if (!inList) { out.push('<ul>'); inList = true; }
-      out.push(`<li>${inline(m[1])}</li>`);
-    }
-    else if ((m = t.match(/^\d+\.\s+(.*)$/))) {
+    else if ((m = t.match(/^#{1,2}\s+(.*)$/))) { closeList(); out.push(`<h2>${inline(m[1])}</h2>`); }
+    else if ((m = t.match(/^(?:[-*・]|\d+\.)\s+(.*)$/))) {
       if (!inList) { out.push('<ul>'); inList = true; }
       out.push(`<li>${inline(m[1])}</li>`);
     }
     else { closeList(); out.push(`<p>${inline(t)}</p>`); }
   }
   closeList();
-  return linkTimestamps(out.join(''));
-}
-
-const inline = (s) =>
-  s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(?<!\*)\*(?!\s)(.+?)(?<!\s)\*/g, '<em>$1</em>');
-
-function setStatus(text) {
-  statusText.textContent = text;
-  statusBox.classList.add('on');
-}
-function clearStatus() { statusBox.classList.remove('on'); }
-
-function showError(message, hint, attempts) {
-  let html = `<strong>${escapeHtml(message)}</strong>${hint ? escapeHtml(hint) : ''}`;
-
-  // どの経路がどう失敗したかを畳んで添える。原因の切り分けに使う
-  if (Array.isArray(attempts) && attempts.length) {
-    const rows = attempts
-      .map((a) => `${escapeHtml(a.source ?? '?')}: ${escapeHtml(a.error ?? '')}`)
-      .join('\n');
-    html += `<details><summary>取得を試みた経路 (${attempts.length}件)</summary><pre>${rows}</pre></details>`;
-  }
-
-  errorBox.innerHTML = html;
-  errorBox.classList.add('on');
+  return linkTimestamps(out.join(''), videoId);
 }
 
 const ERROR_HINTS = {
-  NO_CAPTIONS: '字幕が公開されていない動画は要約できません。別の動画でお試しください。',
+  NO_CAPTIONS: '字幕が公開されていない動画は要約できません。',
   LIVE_STREAM: '',
   NOT_PLAYABLE: '削除された動画、非公開の動画、またはアカウントが削除された動画です。',
   BOT_CHECK: 'サーバーのIPアドレスが一時的に制限されています。数分〜数時間で解除されることが多いので、時間をおいてお試しください。動画の内容とは関係のないエラーです。',
@@ -395,25 +364,95 @@ function formatDuration(sec) {
   return h > 0 ? `${h}時間${m}分` : `${m}分${s}秒`;
 }
 
+function setProgress(text) {
+  progressText.textContent = text;
+  progressBox.classList.add('on');
+}
+const clearProgress = () => progressBox.classList.remove('on');
+
+function showAlert(message, extra) {
+  alertBox.innerHTML = `<strong>${escapeHtml(message)}</strong>${extra ? escapeHtml(extra) : ''}`;
+  alertBox.classList.add('on');
+}
+
+/** 動画1本分のカードを作る */
+function createItem(index, videoId, input) {
+  const el = document.createElement('article');
+  el.className = 'item';
+  el.innerHTML = `
+    <div class="item-head">
+      <img alt="" width="96" height="54" src="https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/mqdefault.jpg" />
+      <div>
+        <div class="t"></div>
+        <div class="m"><span class="badge">待機中</span><span class="meta-text"></span></div>
+      </div>
+    </div>
+    <div class="item-body"></div>
+    <p class="note"></p>`;
+
+  el.querySelector('.t').textContent = input;
+  resultsBox.appendChild(el);
+
+  const item = {
+    videoId, el,
+    titleEl: el.querySelector('.t'),
+    badgeEl: el.querySelector('.badge'),
+    metaEl: el.querySelector('.meta-text'),
+    bodyEl: el.querySelector('.item-body'),
+    noteEl: el.querySelector('.note'),
+    markdown: '',
+    title: input,
+  };
+  items.set(index, item);
+  return item;
+}
+
+/** カードに操作ボタンを付ける */
+function addActions(item) {
+  if (item.el.querySelector('.actions')) return;
+  const bar = document.createElement('div');
+  bar.className = 'actions';
+
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.textContent = '要約をコピー';
+  copy.addEventListener('click', async () => {
+    const label = copy.textContent;
+    try {
+      await navigator.clipboard.writeText(item.markdown);
+      copy.textContent = 'コピーしました';
+    } catch {
+      copy.textContent = 'コピーできませんでした';
+    }
+    setTimeout(() => (copy.textContent = label), 1500);
+  });
+
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.textContent = 'YouTube で開く';
+  open.addEventListener('click', () =>
+    window.open(`https://www.youtube.com/watch?v=${item.videoId}`, '_blank', 'noopener'));
+
+  bar.append(copy, open);
+  item.noteEl.before(bar);
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (inFlight) inFlight.abort();
 
-  const url = urlInput.value.trim();
-  if (!url) return;
+  const urls = urlsInput.value.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!urls.length) return;
 
   const length = form.querySelector('input[name="length"]:checked').value;
 
   // 表示をリセット
-  errorBox.classList.remove('on');
-  resultBox.classList.remove('on');
-  summaryBox.innerHTML = '';
-  videobar.hidden = true;
-  note.textContent = '';
-  rawMarkdown = '';
-  currentVideoId = null;
+  alertBox.classList.remove('on');
+  bulkBox.classList.remove('on');
+  resultsBox.innerHTML = '';
+  items = new Map();
   go.disabled = true;
-  setStatus('準備中…');
+  setProgress('準備中…');
 
   const controller = new AbortController();
   inFlight = controller;
@@ -422,7 +461,7 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/api/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, length, review: $('review').checked }),
+      body: JSON.stringify({ urls, length, review: $('review').checked }),
       signal: controller.signal,
     });
 
@@ -442,19 +481,19 @@ form.addEventListener('submit', async (e) => {
 
       let sep;
       while ((sep = buffer.indexOf('\n\n')) !== -1) {
-        const block = buffer.slice(0, sep);
+        handleEvent(buffer.slice(0, sep));
         buffer = buffer.slice(sep + 2);
-        handleEvent(block);
       }
     }
   } catch (err) {
     if (err.name !== 'AbortError') {
-      clearStatus();
-      showError(err.message ?? '通信に失敗しました');
+      clearProgress();
+      showAlert(err.message ?? '通信に失敗しました');
     }
   } finally {
     go.disabled = false;
     inFlight = null;
+    clearProgress();
   }
 });
 
@@ -470,56 +509,118 @@ function handleEvent(block) {
   let data;
   try { data = JSON.parse(dataLine); } catch { return; }
 
-  if (event === 'status') {
-    setStatus(data.message ?? '処理中…');
-  } else if (event === 'meta') {
-    currentVideoId = data.videoId;
-    thumb.src = `https://i.ytimg.com/vi/${data.videoId}/mqdefault.jpg`;
-    thumb.alt = '';
-    vtitle.textContent = data.title;
+  const item = typeof data.index === 'number' ? items.get(data.index) : null;
+
+  if (event === 'queue') {
+    for (const q of data.items) createItem(q.index, q.videoId, q.input);
+
+    const notes = [];
+    if (data.invalid?.length) {
+      notes.push(`URL として認識できなかった行が ${data.invalid.length} 件あります: ${data.invalid.join(' / ')}`);
+    }
+    if (data.truncated) notes.push(`一度に処理できるのは ${data.limit} 本までです。先頭から ${data.limit} 本を処理します。`);
+    if (notes.length) showAlert('一部の入力は処理されません', '\n' + notes.join('\n'));
+
+    setProgress(`${data.items.length} 本を順に処理します…`);
+  }
+
+  else if (event === 'status') {
+    if (item) { item.badgeEl.textContent = '処理中'; }
+    setProgress(data.message ?? '処理中…');
+  }
+
+  else if (event === 'meta') {
+    if (!item) return;
+    item.title = data.title;
+    item.titleEl.textContent = data.title;
+    item.el.querySelector('img').src = `https://i.ytimg.com/vi/${encodeURIComponent(data.videoId)}/mqdefault.jpg`;
     const bits = [data.author, formatDuration(data.lengthSeconds)].filter(Boolean);
     bits.push(`字幕: ${data.captionLanguage}${data.captionIsAsr ? '（自動生成）' : ''}`);
-    vmeta.textContent = bits.join(' ・ ');
-    videobar.hidden = false;
-    resultBox.classList.add('on');
-  } else if (event === 'reset') {
-    // 下書きを破棄して完成版を流し込む (検証パスの開始時)
-    rawMarkdown = data.text ?? '';
-    summaryBox.innerHTML = rawMarkdown
-      ? renderMarkdown(rawMarkdown)
+    item.metaEl.textContent = bits.join(' ・ ');
+  }
+
+  else if (event === 'reset') {
+    if (!item) return;
+    item.markdown = data.text ?? '';
+    item.bodyEl.innerHTML = item.markdown
+      ? renderMarkdown(item.markdown, item.videoId)
       : '<p style="color:var(--muted)">検証結果を反映しています…</p>';
-  } else if (event === 'delta') {
-    clearStatus();
-    resultBox.classList.add('on');
-    rawMarkdown += data.text;
-    summaryBox.innerHTML = renderMarkdown(rawMarkdown) + '<span class="caret"></span>';
-  } else if (event === 'done') {
-    clearStatus();
-    summaryBox.innerHTML = renderMarkdown(rawMarkdown);
+  }
+
+  else if (event === 'delta') {
+    if (!item) return;
+    item.markdown += data.text;
+    item.bodyEl.innerHTML = `<div class="summary">${renderMarkdown(item.markdown, item.videoId)}<span class="caret"></span></div>`;
+  }
+
+  else if (event === 'item-done') {
+    if (!item) return;
+    item.el.classList.add('done');
+    item.badgeEl.textContent = '完了';
+    item.bodyEl.innerHTML = `<div class="summary">${renderMarkdown(item.markdown, item.videoId)}</div>`;
+    addActions(item);
+
     const notes = [];
     if (data.sampled) notes.push('動画が長いため、字幕の一部を抜粋して要約しています。');
     if (data.reviewError) notes.push('検証パスが失敗したため、検証前の内容を表示しています。');
     if (data.model) notes.push(`モデル: ${data.model}`);
-    note.textContent = notes.join(' ');
-  } else if (event === 'error') {
-    clearStatus();
-    showError(data.message, ERROR_HINTS[data.code], data.detail?.attempts);
+    item.noteEl.textContent = notes.join(' ');
+  }
+
+  else if (event === 'item-error') {
+    if (!item) return;
+    item.el.classList.add('err');
+    item.badgeEl.textContent = '失敗';
+
+    const hint = ERROR_HINTS[data.code] ?? '';
+    let html = `<strong>${escapeHtml(data.message)}</strong>${escapeHtml(hint)}`;
+    const attempts = data.detail?.attempts;
+    if (Array.isArray(attempts) && attempts.length) {
+      const rows = attempts
+        .map((a) => `${escapeHtml(a.source ?? '?')}: ${escapeHtml(a.error ?? '')}`)
+        .join('\n');
+      html += `<details><summary>取得を試みた経路 (${attempts.length}件)</summary><pre>${rows}</pre></details>`;
+    }
+    const box = document.createElement('div');
+    box.className = 'item-err';
+    box.innerHTML = html;
+    item.bodyEl.after(box);
+  }
+
+  else if (event === 'done') {
+    clearProgress();
+    if (data.failed > 0) {
+      showAlert(`${data.total} 本中 ${data.succeeded} 本を要約しました`, `\n${data.failed} 本は失敗しています。各カードの理由をご確認ください。`);
+    }
+    if (data.succeeded > 1) bulkBox.classList.add('on');
+  }
+
+  else if (event === 'fatal') {
+    clearProgress();
+    showAlert(data.message, `\nここまでに ${data.succeeded} 本の要約が完了しています。`);
   }
 }
 
-$('copy').addEventListener('click', async () => {
+$('copy-all').addEventListener('click', async () => {
+  const btn = $('copy-all');
+  const text = [...items.values()]
+    .filter((i) => i.markdown)
+    .map((i) => `# ${i.title}\nhttps://www.youtube.com/watch?v=${i.videoId}\n\n${i.markdown}`)
+    .join('\n\n---\n\n');
+
   try {
-    await navigator.clipboard.writeText(rawMarkdown);
-    $('copy').textContent = 'コピーしました';
-    setTimeout(() => ($('copy').textContent = '要約をコピー'), 1500);
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'コピーしました';
   } catch {
-    $('copy').textContent = 'コピーできませんでした';
-    setTimeout(() => ($('copy').textContent = '要約をコピー'), 1500);
+    btn.textContent = 'コピーできませんでした';
   }
+  setTimeout(() => (btn.textContent = 'すべての要約をコピー'), 1500);
 });
 
-$('open').addEventListener('click', () => {
-  if (currentVideoId) window.open(`https://www.youtube.com/watch?v=${currentVideoId}`, '_blank', 'noopener');
+// 入力された URL の本数を表示する
+urlsInput.addEventListener('input', () => {
+  const n = urlsInput.value.split('\n').filter((s) => s.trim()).length;
+  $('url-count').textContent = n > 1 ? `（${n} 件）` : '';
 });
 </script>
 </body>
