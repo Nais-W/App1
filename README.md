@@ -6,6 +6,8 @@ Cloudflare Workers 上で動作し、要約には Cloudflare Workers AI（無料
 ## できること
 
 - YouTube の各種 URL（`watch` / `youtu.be` / `shorts` / `embed` / `live`）に対応
+- 「ひとことで言うと / 要点 / 詳しい内容 / 覚えておきたいこと」の構成で、後から見返せる資料として出力
+- 解説動画で手順が説明されている場合は、その手順を番号付きで書き出す
 - 要約の長さを「短め / 標準 / 詳しく」から選択
 - 要約が生成される様子をリアルタイム表示（ストリーミング）
 - 要約中の `[m:ss]` をクリックすると、YouTube の該当箇所へジャンプ
@@ -26,8 +28,8 @@ Cloudflare Worker
   │      取得できた字幕トラックを json3 形式でダウンロード
   │
   ├─ 3. 要約 (src/summarize.js)
-  │      短い動画 : 字幕をそのまま要約
-  │      長い動画 : 分割 → パートごとに要約 → 統合して最終要約
+  │      短い動画 : 字幕をそのまま要約 (情報が最も落ちない)
+  │      長い動画 : 分割 → パートごとに内容を書き出し → 統合して最終要約
   │
   └─ 4. SSE で進捗と本文を逐次返却
 ```
@@ -38,7 +40,7 @@ Cloudflare Worker
 | --- | --- |
 | `src/index.js` | Worker のエントリポイント。ルーティングと SSE 配信 |
 | `src/youtube.js` | 動画ID の抽出と字幕取得 |
-| `src/summarize.js` | 字幕の分割と Workers AI による要約 |
+| `src/summarize.js` | 字幕の分割と Workers AI による要約。プロンプトもここ |
 | `public/index.html` | 画面（HTML / CSS / JS を1ファイルに同梱、外部依存なし） |
 | `wrangler.jsonc` | Cloudflare の設定（AI バインディング、モデル名など） |
 
@@ -87,6 +89,20 @@ npm run dev            # http://localhost:8787
 
 モデルを変えたい場合は、[Workers AI のモデル一覧](https://developers.cloudflare.com/workers-ai/models/) から
 テキスト生成モデルの ID を選んで `SUMMARY_MODEL` に設定してください。
+
+## 要約の質を調整したい場合
+
+要約の内容や書き方は `src/summarize.js` のプロンプトで決まっています。
+
+- `EXTRACTION_RULES` … 「話題を示すだけの書き方」を禁止し、話された中身を書かせるための共通ルール。禁止例と良い例をモデルに渡しています
+- `reduceMessages()` … 最終要約の出力フォーマット（見出し構成）
+- `mapMessages()` … 長い動画を分割したときの、パートごとの書き出し方
+- `LENGTH_PRESETS` … 「短め / 標準 / 詳しく」それぞれの項目数と出力トークン数
+
+出力が「〜について話している」のような目次調になる場合は、`EXTRACTION_RULES` の禁止例を
+実際に出てしまった文言に差し替えると効きます。
+
+モデルを変えるのも有効です。`wrangler.jsonc` の `SUMMARY_MODEL` を書き換えてください。
 
 ## 制限と注意点
 
