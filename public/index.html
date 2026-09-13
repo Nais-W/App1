@@ -255,6 +255,17 @@
     <textarea id="urls" name="urls" rows="3" spellcheck="false" autocomplete="off"
       placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/...&#10;（1行に1つ貼り付けてください）"></textarea>
 
+    <div class="row" id="engine-row" hidden>
+      <div>
+        <label for="eng-gemini">解析方法</label>
+        <div class="seg" role="radiogroup" aria-label="解析方法">
+          <label><input type="radio" name="engine" value="gemini" id="eng-gemini" checked><span>動画を解析</span></label>
+          <label><input type="radio" name="engine" value="workers-ai" id="eng-workers"><span>字幕から要約</span></label>
+        </div>
+      </div>
+    </div>
+    <p class="hint" id="engine-hint"></p>
+
     <div class="row">
       <div>
         <label for="len-standard">要約の長さ</label>
@@ -356,6 +367,12 @@ const ERROR_HINTS = {
   BOT_CHECK: 'サーバーのIPアドレスが一時的に制限されています。数分〜数時間で解除されることが多いので、時間をおいてお試しください。動画の内容とは関係のないエラーです。',
   CLIENT_OUTDATED: 'YouTube 側の仕様変更により、取得方法が古くなった可能性があります。下の詳細を開発者に伝えると修正できます。',
   FETCH_BLOCKED: '時間をおいて再度お試しください。繰り返し起きる場合は、YouTube 側でアクセスが制限されている可能性があります。',
+  GEMINI_KEY_INVALID: 'Cloudflare の設定で GEMINI_API_KEY を確認してください。',
+  GEMINI_QUOTA: '無料枠は1日あたり動画8時間までです。翌日まで待つか、「字幕から要約」に切り替えてお試しください。',
+  GEMINI_FORBIDDEN: 'API キーの権限をご確認ください。',
+  GEMINI_TOO_LONG: '動画が長すぎて処理できませんでした。「字幕から要約」に切り替えるとうまくいくことがあります。',
+  GEMINI_EMPTY: '限定公開・非公開の動画は Gemini では扱えません。公開動画をお試しください。',
+  GEMINI_ERROR: '「字幕から要約」に切り替えるとうまくいくことがあります。',
 };
 
 function formatDuration(sec) {
@@ -461,7 +478,7 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/api/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls, length, review: $('review').checked }),
+      body: JSON.stringify({ urls, length, review: $('review').checked, engine: selectedEngine() }),
       signal: controller.signal,
     });
 
@@ -525,7 +542,11 @@ function handleEvent(block) {
   }
 
   else if (event === 'status') {
-    if (item) { item.badgeEl.textContent = '処理中'; }
+    if (item) {
+      item.badgeEl.textContent = '処理中';
+      // Gemini が使えず字幕ベースに切り替えた場合は、カードにも残す
+      if (data.phase === 'fallback') item.noteEl.textContent = data.message ?? '';
+    }
     setProgress(data.message ?? '処理中…');
   }
 
@@ -535,7 +556,11 @@ function handleEvent(block) {
     item.titleEl.textContent = data.title;
     item.el.querySelector('img').src = `https://i.ytimg.com/vi/${encodeURIComponent(data.videoId)}/mqdefault.jpg`;
     const bits = [data.author, formatDuration(data.lengthSeconds)].filter(Boolean);
-    bits.push(`字幕: ${data.captionLanguage}${data.captionIsAsr ? '（自動生成）' : ''}`);
+    if (data.source === 'gemini') {
+      bits.push('音声と画面を解析');
+    } else if (data.captionLanguage) {
+      bits.push(`字幕: ${data.captionLanguage}${data.captionIsAsr ? '（自動生成）' : ''}`);
+    }
     item.metaEl.textContent = bits.join(' ・ ');
   }
 
@@ -563,7 +588,9 @@ function handleEvent(block) {
     const notes = [];
     if (data.sampled) notes.push('動画が長いため、字幕の一部を抜粋して要約しています。');
     if (data.reviewError) notes.push('検証パスが失敗したため、検証前の内容を表示しています。');
-    if (data.model) notes.push(`モデル: ${data.model}`);
+    if (data.model) {
+      notes.push(`${data.engine === 'gemini' ? '動画を解析' : '字幕から要約'} / ${data.model}`);
+    }
     item.noteEl.textContent = notes.join(' ');
   }
 
@@ -616,6 +643,46 @@ $('copy-all').addEventListener('click', async () => {
   }
   setTimeout(() => (btn.textContent = 'すべての要約をコピー'), 1500);
 });
+
+// --- 使えるエンジンを調べて選択肢を出す ---
+let engines = ['workers-ai'];
+
+const ENGINE_NOTES = {
+  gemini: '動画の音声と画面を直接解析します。画面に表示された URL やコードも読み取れ、字幕が無い動画にも対応します。無料枠は1日あたり動画8時間までです。',
+  'workers-ai': '字幕を取得して要約します。回数の制限が緩い一方、画面にしか出ていない情報は拾えません。',
+};
+
+function selectedEngine() {
+  if (engines.length < 2) return null;
+  return form.querySelector('input[name="engine"]:checked')?.value ?? null;
+}
+
+function updateEngineHint() {
+  const e = selectedEngine() ?? engines[0];
+  $('engine-hint').textContent = ENGINE_NOTES[e] ?? '';
+}
+
+(async () => {
+  try {
+    const res = await fetch('/api/health');
+    if (!res.ok) return;
+    const health = await res.json();
+    engines = health.engines ?? engines;
+
+    if (engines.length > 1) {
+      $('engine-row').hidden = false;
+      const pref = health.defaultEngine ?? engines[0];
+      const radio = form.querySelector(`input[name="engine"][value="${pref}"]`);
+      if (radio) radio.checked = true;
+      for (const r of form.querySelectorAll('input[name="engine"]')) {
+        r.addEventListener('change', updateEngineHint);
+      }
+    }
+    updateEngineHint();
+  } catch {
+    /* 取得できなくても既定の動作で使える */
+  }
+})();
 
 // 入力された URL の本数を表示する
 urlsInput.addEventListener('input', () => {
