@@ -63,6 +63,23 @@ export class TranscriptError extends Error {
 const INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
 /**
+ * 各クライアントが名乗るバージョン。
+ *
+ * 古いバージョンを名乗ると YouTube に
+ * 「このアプリまたはデバイスでサポートされなくなりました」と拒否される。
+ * その症状が出たらここを新しい値に更新する。
+ */
+const CLIENT_VERSIONS = {
+  ANDROID_VR: '1.65.10',
+  ANDROID: '20.44.39',
+  IOS: '20.44.4',
+  WEB: '2.20260901.00.00',
+  WEB_EMBEDDED: '1.20260901.00.00',
+  MWEB: '2.20260901.02.00',
+  TV_EMBEDDED: '2.0',
+};
+
+/**
  * InnerTube (YouTube 内部API) のクライアント定義。
  * 上から順に試す。データセンターIPからのアクセスは弾かれることがあるため複数用意する。
  */
@@ -72,7 +89,7 @@ const CLIENTS = [
     label: 'ANDROID_VR',
     client: {
       clientName: 'ANDROID_VR',
-      clientVersion: '1.62.27',
+      clientVersion: CLIENT_VERSIONS.ANDROID_VR,
       deviceMake: 'Oculus',
       deviceModel: 'Quest 3',
       osName: 'Android',
@@ -80,9 +97,9 @@ const CLIENTS = [
       androidSdkVersion: 32,
     },
     headers: {
-      'User-Agent': 'com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12; GB) gzip',
+      'User-Agent': `com.google.android.apps.youtube.vr.oculus/${CLIENT_VERSIONS.ANDROID_VR} (Linux; U; Android 12; GB) gzip`,
       'X-YouTube-Client-Name': '28',
-      'X-YouTube-Client-Version': '1.62.27',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.ANDROID_VR,
     },
   },
   {
@@ -90,7 +107,7 @@ const CLIENTS = [
     label: 'TV_EMBEDDED',
     client: {
       clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-      clientVersion: '2.0',
+      clientVersion: CLIENT_VERSIONS.TV_EMBEDDED,
       platform: 'TV',
     },
     contextExtra: { thirdParty: { embedUrl: 'https://www.youtube.com/' } },
@@ -98,14 +115,14 @@ const CLIENTS = [
       'User-Agent':
         'Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
       'X-YouTube-Client-Name': '85',
-      'X-YouTube-Client-Version': '2.0',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.TV_EMBEDDED,
     },
   },
   {
     label: 'IOS',
     client: {
       clientName: 'IOS',
-      clientVersion: '20.10.4',
+      clientVersion: CLIENT_VERSIONS.IOS,
       deviceMake: 'Apple',
       deviceModel: 'iPhone16,2',
       osName: 'iOS',
@@ -113,46 +130,46 @@ const CLIENTS = [
       platform: 'MOBILE',
     },
     headers: {
-      'User-Agent': 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)',
+      'User-Agent': `com.google.ios.youtube/${CLIENT_VERSIONS.IOS} (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)`,
       'X-YouTube-Client-Name': '5',
-      'X-YouTube-Client-Version': '20.10.4',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.IOS,
     },
   },
   {
     label: 'ANDROID',
     client: {
       clientName: 'ANDROID',
-      clientVersion: '20.10.38',
+      clientVersion: CLIENT_VERSIONS.ANDROID,
       androidSdkVersion: 30,
       osName: 'Android',
       osVersion: '11',
       platform: 'MOBILE',
     },
     headers: {
-      'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip',
+      'User-Agent': `com.google.android.youtube/${CLIENT_VERSIONS.ANDROID} (Linux; U; Android 11) gzip`,
       'X-YouTube-Client-Name': '3',
-      'X-YouTube-Client-Version': '20.10.38',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.ANDROID,
     },
   },
   {
     label: 'MWEB',
     client: {
       clientName: 'MWEB',
-      clientVersion: '2.20250301.02.00',
+      clientVersion: CLIENT_VERSIONS.MWEB,
       platform: 'MOBILE',
     },
     headers: {
       'User-Agent':
         'Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1',
       'X-YouTube-Client-Name': '2',
-      'X-YouTube-Client-Version': '2.20250301.02.00',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.MWEB,
     },
   },
   {
     label: 'WEB_EMBEDDED',
     client: {
       clientName: 'WEB_EMBEDDED_PLAYER',
-      clientVersion: '1.20250301.00.00',
+      clientVersion: CLIENT_VERSIONS.WEB_EMBEDDED,
       platform: 'DESKTOP',
     },
     contextExtra: { thirdParty: { embedUrl: 'https://www.youtube.com/' } },
@@ -160,21 +177,21 @@ const CLIENTS = [
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
       'X-YouTube-Client-Name': '56',
-      'X-YouTube-Client-Version': '1.20250301.00.00',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.WEB_EMBEDDED,
     },
   },
   {
     label: 'WEB',
     client: {
       clientName: 'WEB',
-      clientVersion: '2.20250301.00.00',
+      clientVersion: CLIENT_VERSIONS.WEB,
       platform: 'DESKTOP',
     },
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
       'X-YouTube-Client-Name': '1',
-      'X-YouTube-Client-Version': '2.20250301.00.00',
+      'X-YouTube-Client-Version': CLIENT_VERSIONS.WEB,
     },
   },
 ];
@@ -356,19 +373,32 @@ export function parseChapters(description) {
 }
 
 /** ログイン要求・bot 判定を示す文言 */
-const BOT_CHECK_RE = /bot|sign in|signin|ログイン|ロボット|not a robot|confirm you/i;
+const BOT_CHECK_RE = /bot|sign ?in|ログイン|ロボット|not a robot|confirm you/i;
+
+/** クライアントが古い・対象外だと拒否されたときの文言 */
+const UNSUPPORTED_CLIENT_RE =
+  /no longer (?:available|supported)|not (?:available|supported) on this|this (?:app|device)|このアプリ|このデバイス|サポートされなくなりました|アップデート|update (?:the|your) app/i;
+
+/** 動画そのものが無いときの文言 */
+const VIDEO_GONE_RE =
+  /video unavailable|private video|this video is private|has been removed|removed by the uploader|account .* terminated|動画は削除|非公開|アカウントが削除/i;
 
 /**
  * playabilityStatus を分類する。
  *
- * 「再生できない」には2種類ある。
- *   - 動画そのものが無い (削除・非公開) … どのクライアントで試しても同じ
- *   - ログイン要求 / bot 判定 / このアプリでは見られない … クライアント次第で変わる
+ * 「再生できません」と言われる理由は、動画側の事情とクライアント側の事情に分かれる。
+ *   - 動画が無い (削除・非公開)        … どのクライアントでも同じ
+ *   - ログイン要求 / bot 判定          … クライアントごとに違う
+ *   - アプリが古い・対象外と言われる    … クライアントごとに違う
  *
- * 後者で打ち切ると、通るはずの経路を試さずに諦めることになるため、
- * 打ち切ってよいのは前者だけに限定する。
+ * 最後の2つは status が ERROR で返ってくることもあるため、
+ * status ではなく理由の文言で判断する。
  *
- * @returns {{kind: 'ok'|'blocked'|'fatal', reason?: string, status?: string, botCheck?: boolean}}
+ * なお、ここでの判定結果で取得を打ち切ることはしない。
+ * 分類を誤ると通るはずの経路を試さずに諦めることになるので、
+ * 全経路を試したうえで、集まった分類から利用者に返すエラーを決める。
+ *
+ * @returns {{kind: 'ok'|'bot'|'unsupported'|'gone'|'other', reason?: string, status?: string}}
  */
 function classifyPlayability(player) {
   const st = player?.playabilityStatus;
@@ -378,17 +408,13 @@ function classifyPlayability(player) {
   const reason =
     st.reason || st.errorScreen?.playerErrorMessageRenderer?.reason?.simpleText || status;
 
-  // 動画が存在しない・非公開・削除済み。経路を変えても結果は同じ
-  if (status === 'ERROR') return { kind: 'fatal', reason, status };
+  if (status === 'LOGIN_REQUIRED' || BOT_CHECK_RE.test(reason)) {
+    return { kind: 'bot', reason, status };
+  }
+  if (UNSUPPORTED_CLIENT_RE.test(reason)) return { kind: 'unsupported', reason, status };
+  if (VIDEO_GONE_RE.test(reason)) return { kind: 'gone', reason, status };
 
-  // それ以外 (LOGIN_REQUIRED / UNPLAYABLE / AGE_VERIFICATION_REQUIRED など) は
-  // クライアント固有のことがあるので、次の経路を試す
-  return {
-    kind: 'blocked',
-    reason,
-    status,
-    botCheck: status === 'LOGIN_REQUIRED' || BOT_CHECK_RE.test(reason),
-  };
+  return { kind: 'other', reason, status };
 }
 
 /**
@@ -472,6 +498,7 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
   const lang = preferredLangs[0] ?? 'ja';
   const attempts = [];
   let lastPlayable = null;
+  let goneReason = null;
 
   const sources = [
     ...CLIENTS.map((c) => ({
@@ -481,7 +508,8 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
     { label: 'watch-page', run: () => fetchPlayerResponseFromWatchPage(videoId, lang) },
   ];
 
-  let botBlocked = false;
+  /** 経路ごとの分類結果。どのエラーを利用者に返すかを最後に決めるために使う */
+  const verdicts = [];
 
   for (const source of sources) {
     let player;
@@ -517,29 +545,23 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
       }
     }
 
-    // 字幕が取れなかったので、その理由を分類する
+    // 字幕が取れなかったので理由を記録する。ここでは打ち切らない
     const pl = classifyPlayability(player);
+    verdicts.push(pl.kind);
 
-    if (pl.kind === 'fatal') {
-      // 動画そのものが無い。経路を変えても同じなのでここで打ち切る
-      throw new TranscriptError('NOT_PLAYABLE', `この動画は再生できません: ${pl.reason}`, {
-        status: pl.status,
-        attempts,
-      });
-    }
-
-    if (pl.kind === 'blocked') {
-      if (pl.botCheck) botBlocked = true;
+    if (pl.kind === 'ok') {
+      // 再生はできるが字幕が無い。動画の情報は使えるので覚えておく
+      lastPlayable = player;
+      attempts.push({ source: source.label, error: '字幕トラックが見つからない' });
+    } else {
       attempts.push({ source: source.label, error: `${pl.status}: ${pl.reason}` });
-      continue;
+      if (pl.kind === 'gone') goneReason = pl.reason;
     }
-
-    // 再生はできるが字幕が無い。動画自体の情報は使えるので覚えておく
-    lastPlayable = player;
-    attempts.push({ source: source.label, error: '字幕トラックが見つからない' });
   }
 
-  // どの経路でも取れなかった
+  // どの経路でも取れなかった。集まった分類から、いちばん確からしい理由を返す
+
+  // 再生できた経路があるなら、動画は存在する。字幕が無いのが理由
   if (lastPlayable) {
     const meta = readMetadata(lastPlayable);
     if (meta.isLive) {
@@ -556,10 +578,27 @@ export async function fetchTranscript(videoId, { preferredLangs = ['ja', 'en'] }
     );
   }
 
-  if (botBlocked) {
+  // 動画が無いという判定が出ていれば、それが理由
+  if (verdicts.includes('gone')) {
+    throw new TranscriptError(
+      'NOT_PLAYABLE',
+      `この動画は取得できません: ${goneReason}`,
+      { attempts },
+    );
+  }
+
+  if (verdicts.includes('bot')) {
     throw new TranscriptError(
       'BOT_CHECK',
       'YouTube にアクセスを拒否されました（bot 判定）。しばらく時間をおいてからお試しください。',
+      { attempts },
+    );
+  }
+
+  if (verdicts.includes('unsupported')) {
+    throw new TranscriptError(
+      'CLIENT_OUTDATED',
+      'YouTube にすべての取得経路を拒否されました。ツール側の更新が必要な可能性があります。',
       { attempts },
     );
   }
