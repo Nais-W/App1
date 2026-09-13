@@ -120,7 +120,7 @@ Cloudflare のダッシュボードからこのリポジトリを接続すると
 
 1. [Cloudflare ダッシュボード](https://dash.cloudflare.com/) にログイン
 2. 左メニューの **Compute (Workers)** → **Create** → **Workers** タブ → **Import a repository**
-3. GitHub アカウントを接続し、`Nais-W/App1` を選択
+3. GitHub アカウントを接続し、`maco27/App1` を選択
 4. ビルド設定を以下のようにする
 
    | 項目 | 値 |
