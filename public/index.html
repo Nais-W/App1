@@ -162,6 +162,19 @@
   }
   #error.on { display: block; }
   #error strong { display: block; margin-bottom: 4px; }
+  #error details { margin-top: 10px; }
+  #error summary { cursor: pointer; font-size: .82rem; opacity: .85; }
+  #error pre {
+    margin: 8px 0 0;
+    padding: 10px;
+    overflow-x: auto;
+    font-size: .75rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: rgba(0, 0, 0, .18);
+    border-radius: 6px;
+  }
 
   #result { display: none; margin-top: 24px; }
   #result.on { display: block; }
@@ -352,16 +365,27 @@ function setStatus(text) {
 }
 function clearStatus() { statusBox.classList.remove('on'); }
 
-function showError(message, hint) {
-  errorBox.innerHTML = `<strong>${escapeHtml(message)}</strong>${hint ? escapeHtml(hint) : ''}`;
+function showError(message, hint, attempts) {
+  let html = `<strong>${escapeHtml(message)}</strong>${hint ? escapeHtml(hint) : ''}`;
+
+  // どの経路がどう失敗したかを畳んで添える。原因の切り分けに使う
+  if (Array.isArray(attempts) && attempts.length) {
+    const rows = attempts
+      .map((a) => `${escapeHtml(a.source ?? '?')}: ${escapeHtml(a.error ?? '')}`)
+      .join('\n');
+    html += `<details><summary>取得を試みた経路 (${attempts.length}件)</summary><pre>${rows}</pre></details>`;
+  }
+
+  errorBox.innerHTML = html;
   errorBox.classList.add('on');
 }
 
 const ERROR_HINTS = {
   NO_CAPTIONS: '字幕が公開されていない動画は要約できません。別の動画でお試しください。',
   LIVE_STREAM: '',
-  NOT_PLAYABLE: '削除された動画、または非公開の動画です。',
+  NOT_PLAYABLE: '削除された動画、非公開の動画、またはアカウントが削除された動画です。',
   BOT_CHECK: 'サーバーのIPアドレスが一時的に制限されています。数分〜数時間で解除されることが多いので、時間をおいてお試しください。動画の内容とは関係のないエラーです。',
+  CLIENT_OUTDATED: 'YouTube 側の仕様変更により、取得方法が古くなった可能性があります。下の詳細を開発者に伝えると修正できます。',
   FETCH_BLOCKED: '時間をおいて再度お試しください。繰り返し起きる場合は、YouTube 側でアクセスが制限されている可能性があります。',
 };
 
@@ -479,7 +503,7 @@ function handleEvent(block) {
     note.textContent = notes.join(' ');
   } else if (event === 'error') {
     clearStatus();
-    showError(data.message, ERROR_HINTS[data.code]);
+    showError(data.message, ERROR_HINTS[data.code], data.detail?.attempts);
   }
 }
 
