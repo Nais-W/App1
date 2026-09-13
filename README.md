@@ -1,14 +1,25 @@
 # YouTube 要約ツール
 
-YouTube の URL を貼り付けると、動画の字幕をもとに内容を日本語で要約する Web ツールです。
-Cloudflare Workers 上で動作し、要約には Cloudflare Workers AI（無料枠あり）を使います。
+YouTube の URL を貼り付けると、動画の内容を日本語で要約する Web ツールです。
+Cloudflare Workers 上で動作します。
+
+要約のしかたは2通りあり、設定に応じて切り替わります。
+
+| エンジン | 何をするか | 必要なもの |
+| --- | --- | --- |
+| **動画を解析**（Gemini） | Gemini に YouTube の URL を渡し、**音声と画面の両方**を解析させる | Gemini API キー（無料枠あり） |
+| **字幕から要約**（Workers AI） | 字幕を取得して Workers AI で要約する | なし |
+
+Gemini を使うと、画面にしか出ていない情報（URL・コード・設定値）も拾え、
+字幕が無い動画にも対応でき、YouTube からの bot 判定も受けません。
 
 ## できること
 
 - YouTube の各種 URL（`watch` / `youtu.be` / `shorts` / `embed` / `live`）に対応
 - **複数の動画をまとめて処理**（1行に1つ貼り付け・1本ずつ順に要約）
 - 「ひとことで言うと / 要点 / 詳しい内容 / 覚えておきたいこと」の構成で、後から見返せる資料として出力
-- 字幕に加えて、投稿者が書いた説明欄とチャプターも要約の材料にする
+- 字幕に加えて、投稿者が書いた説明欄とチャプターも要約の材料にする（Workers AI 経路）
+- 画面に表示された URL・コード・設定値の読み取り（Gemini 経路）
 - 要約後に検証パスを走らせ、聞き取り誤りの表記や抜けを補正（創作は禁止）
 - 解説動画で手順が説明されている場合は、その手順を番号付きで書き出す
 - 要約の長さを「短め / 標準 / 詳しく」から選択
@@ -54,6 +65,55 @@ Cloudflare Worker
 | `public/index.html` | 画面（HTML / CSS / JS を1ファイルに同梱、外部依存なし） |
 | `wrangler.jsonc` | Cloudflare の設定（AI バインディング、モデル名など） |
 
+## Gemini を有効にする
+
+既定では字幕ベース（Workers AI）で動きます。Gemini API キーを設定すると、
+動画そのものを解析する経路が使えるようになります。
+
+### 1. API キーを取得する
+
+[Google AI Studio](https://aistudio.google.com/apikey) にアクセスし、**Get API key** から作成します。
+Google アカウントがあれば無料で取得できます。
+
+### 2. Cloudflare に登録する
+
+キーは秘密情報なので、`wrangler.jsonc` には書かずに **Secret** として登録します。
+
+**ダッシュボードから（GitHub 連携で運用している場合はこちら）**
+
+1. Cloudflare ダッシュボード → **Compute (Workers)** → `yt-summarizer`
+2. **Settings** → **Variables and Secrets** → **Add**
+3. Type に **Secret** を選び、Variable name に `GEMINI_API_KEY`、Value にキーを貼り付け
+4. **Deploy** を押す
+
+**コマンドラインから**
+
+```bash
+npx wrangler secret put GEMINI_API_KEY
+```
+
+登録すると、画面に「解析方法」の切り替えが現れます。
+
+### 無料枠と制約
+
+| 項目 | 内容 |
+| --- | --- |
+| 動画の量 | **1日あたり8時間まで**（無料枠） |
+| リクエスト数 | Flash 系モデルで 1日 500〜1,000 回程度 |
+| 対象 | **公開動画のみ**（限定公開・非公開は不可） |
+| 費用 | YouTube URL の機能はプレビュー中で無料 |
+
+**検証パスを有効にすると、動画を2回解析するため消費も2倍になります。**
+18分の動画なら1本あたり36分を消費する計算です。無料枠を節約したい場合はチェックを外してください。
+
+### 失敗したときの動作
+
+エンジンを自動選択（既定）にしている場合、Gemini が失敗すると**字幕ベースに自動で切り替えます**。
+無料枠を使い切った日でもツールが止まらないようにするためです。
+画面で「字幕から要約」を明示的に選んでいる場合は切り替えません。
+
+使うエンジンは `wrangler.jsonc` の `ENGINE` で固定できます（`auto` / `gemini` / `workers-ai`）。
+
 ## デプロイ（GitHub 連携で自動デプロイ）
 
 Cloudflare のダッシュボードからこのリポジトリを接続すると、`main` に push するたび自動でデプロイされます。
@@ -97,6 +157,10 @@ npm run dev            # http://localhost:8787
 | `SUMMARY_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | 要約に使うモデル。24,000トークンのコンテキストを持つ |
 | `PREFERRED_LANGS` | `ja,en` | 字幕を探す言語の優先順。先頭ほど優先。手動字幕を自動生成字幕より優先します |
 | `MAX_URLS` | `5` | 一度に処理できる動画の本数。増やす場合は下記の制約に注意 |
+| `ENGINE` | `auto` | `auto` / `gemini` / `workers-ai`。`auto` はキーがあれば Gemini |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini のモデル。無料枠で使えるのは Flash 系 |
+
+`GEMINI_API_KEY` は秘密情報のため `vars` ではなく Secret として登録します（上記参照）。
 
 モデルを変えたい場合は、[Workers AI のモデル一覧](https://developers.cloudflare.com/workers-ai/models/) から
 テキスト生成モデルの ID を選んで `SUMMARY_MODEL` に設定してください。
@@ -196,7 +260,10 @@ npm run dev            # http://localhost:8787
 このツールは**動画の字幕**を読んで要約します。音声そのものは解析しません。
 字幕（自動生成を含む）が付いていない動画は要約できません。
 
-### 字幕は音声しか拾えません
+### 字幕は音声しか拾えません（Workers AI 経路のみ）
+
+> Gemini を有効にすると、この節の問題は起きません。以下は字幕ベースで使う場合の話です。
+
 
 このツールは動画の**字幕**を読んで要約します。そのため以下は要約に反映されません。
 
@@ -212,7 +279,10 @@ npm run dev            # http://localhost:8787
 字幕から落ちた情報の一部（ツール名、URL、話題の区切り）を補っています。
 字幕と説明欄で表記が食い違う場合は、説明欄の表記を優先するようモデルに指示しています。
 
-### YouTube 側にブロックされる可能性があります
+### YouTube 側にブロックされる可能性があります（Workers AI 経路のみ）
+
+> Gemini 経路では Google 側が動画を取得するため、この問題は起きません。
+
 
 YouTube は、データセンターの IP アドレスからの字幕取得を制限することがあります。
 Cloudflare Workers もデータセンターから通信するため、**動画情報の取得が拒否される場合があります**。

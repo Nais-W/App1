@@ -24,6 +24,15 @@
     "SUMMARY_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     // 字幕を優先的に探す言語 (カンマ区切り・先頭ほど優先)
     "PREFERRED_LANGS": "ja,en",
+    // 使う要約エンジン。
+    //   auto       : GEMINI_API_KEY があれば gemini、なければ workers-ai
+    //   gemini     : Gemini に動画を直接解析させる (API キーが必要)
+    //   workers-ai : 字幕を取得して Workers AI で要約する
+    // GEMINI_API_KEY は秘密情報なのでここには書かず、
+    // Cloudflare ダッシュボードか `wrangler secret put GEMINI_API_KEY` で設定する。
+    "ENGINE": "auto",
+    // Gemini のモデル。無料枠で使えるのは Flash 系
+    "GEMINI_MODEL": "gemini-3.8-flash",
     // 一度に処理できる動画の本数。
     // 無料プランはサブリクエストが1リクエストあたり50件までのため控えめにしている。
     // 有料プラン (1,000件) に上げたら増やせる。
