@@ -244,9 +244,32 @@ function mapMessages(chunk, index, total) {
   ];
 }
 
+/**
+ * 字幕以外の材料 (説明欄・チャプター) を組み立てる。
+ *
+ * 字幕は音声しか拾えないため、画面にだけ出ている情報や、
+ * 聞き取りに失敗した固有名詞が落ちる。投稿者が書いた説明欄とチャプターは
+ * その一部を補えるので、字幕とは区別できる形で材料に加える。
+ */
+function buildSupplement(metadata) {
+  const parts = [];
+
+  if (metadata.chapters?.length) {
+    const list = metadata.chapters.map((c) => `[${c.time}] ${c.title}`).join('\n');
+    parts.push(`[投稿者が付けたチャプター]\n${list}`);
+  }
+
+  if (metadata.description) {
+    parts.push(`[動画の説明欄]\n${metadata.description}`);
+  }
+
+  return parts.join('\n\n');
+}
+
 /** 最終要約 (reduce フェーズ) のプロンプト */
 function reduceMessages(source, metadata, preset, isRaw) {
   const heading = isRaw ? '書き起こし' : '各パートの内容メモ';
+  const supplement = buildSupplement(metadata);
 
   const sections = [
     '## ひとことで言うと',
@@ -296,8 +319,18 @@ function reduceMessages(source, metadata, preset, isRaw) {
         '- 材料にない情報を足さない\n' +
         '- 時刻は材料に出てくる [m:ss] 形式の表記をそのまま使う。分からない場合は付けない\n' +
         '- 挨拶・チャンネル登録の依頼・広告部分は要約に含めない\n' +
-        '- 「以下が要約です」などの前置きや、最後の感想は書かない\n\n' +
-        `[${heading}]\n${source}`,
+        '- 「以下が要約です」などの前置きや、最後の感想は書かない\n' +
+        (supplement
+          ? '\n書き起こしは音声しか拾えていないため、画面にだけ表示された情報や、' +
+            '聞き取りを誤った固有名詞が抜けていることがあります。\n' +
+            '下の補足資料は投稿者が書いたものなので、字幕と食い違う場合は補足資料の表記を優先してください。\n' +
+            'チャプターがある場合は、それを「詳しい内容」の見出しの手がかりにしてください。\n' +
+            '補足資料にしか出てこないツール名・サービス名・URL・手順も、本編の内容に関係するものは拾ってください。\n' +
+            'ただし宣伝・自己紹介・他の動画への誘導は無視してください。\n'
+          : '') +
+        '\n' +
+        `[${heading}]\n${source}` +
+        (supplement ? `\n\n[補足資料]\n${supplement}` : ''),
     },
   ];
 }
